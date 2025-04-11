@@ -1,0 +1,77 @@
+from IPython.display import display, Javascript
+from google.colab.output import eval_js
+from google.colab.patches import cv2_imshow
+import cv2
+import numpy as np
+import base64
+
+def capture_image():
+    js = Javascript('''
+        async function takePhoto() {
+            const div = document.createElement('div');
+            const capture = document.createElement('button');
+            capture.textContent = '📸 Take Photo';
+            div.appendChild(capture);
+            document.body.appendChild(div);
+
+            const video = document.createElement('video');
+            video.style.display = 'block';
+            const stream = await navigator.mediaDevices.getUserMedia({video: true});
+
+            document.body.appendChild(video);
+            video.srcObject = stream;
+            await video.play();
+
+            google.colab.output.setIframeHeight(document.documentElement.scrollHeight, true);
+            await new Promise((resolve) => capture.onclick = resolve);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            stream.getTracks().forEach(track => track.stop());
+            div.remove();
+            video.remove();
+            return canvas.toDataURL('image/jpeg', 0.8);
+        }
+        takePhoto();
+    ''')
+    display(js)
+    data = eval_js("takePhoto()")
+    binary = base64.b64decode(data.split(',')[1])
+    np_arr = np.frombuffer(binary, dtype=np.uint8)
+    img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    return img
+import supervision as sv
+from rfdetr import RFDETRBase
+
+
+model = RFDETRBase()
+
+
+try:
+    CLASS_NAMES = model.class_names
+except:
+    CLASS_NAMES = ["Class " + str(i) for i in range(100)]
+
+
+img = capture_image()
+cv2_imshow(img)
+
+detections = model.predict(img[:, :, ::-1].copy(), threshold=0.5)
+
+
+
+labels = [
+    f"{CLASS_NAMES[class_id]} {confidence:.2f}"
+    for class_id, confidence in zip(detections.class_id, detections.confidence)
+]
+
+
+box_annotator = sv.BoxAnnotator()
+label_annotator = sv.LabelAnnotator()
+
+annotated_image = box_annotator.annotate(img.copy(), detections)
+annotated_image = label_annotator.annotate(annotated_image, detections, labels)
+
+cv2_imshow(annotated_image)
