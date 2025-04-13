@@ -1,0 +1,28 @@
+import supervision as sv
+from ultralytics import YOLO
+import numpy as np
+
+
+model = YOLO("yolov8n.pt")
+
+
+def callback(frame: np.ndarray, index: int) -> np.ndarray:
+    results = model.predict(frame, verbose=False)[0]  
+    detections = sv.Detections.from_ultralytics(results)
+
+    labels = [
+        f"{model.names[class_id]} {confidence:.2f}"
+        for class_id, confidence in zip(detections.class_id, detections.confidence)
+    ]
+
+    annotated_frame = frame.copy()
+    annotated_frame = sv.BoxAnnotator().annotate(annotated_frame, detections)
+    annotated_frame = sv.LabelAnnotator().annotate(annotated_frame, detections, labels)
+    return annotated_frame
+
+
+sv.process_video(
+    source_path="/content/855564-hd_1920_1080_24fps.mp4" ,   
+    target_path="output.mp4",   
+    callback=callback
+)
