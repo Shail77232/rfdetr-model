@@ -1,0 +1,74 @@
+from IPython.display import display, Javascript
+from google.colab.output import eval_js
+from base64 import b64decode
+import cv2
+import numpy as np
+
+def capture_frame():
+    js = Javascript('''
+        async function takePhoto() {
+            const div = document.createElement('div');
+            const capture = document.createElement('button');
+            capture.textContent = ' Take Snapshot';
+            div.appendChild(capture);
+
+            const video = document.createElement('video');
+            video.style.display = 'block';
+            video.setAttribute('playsinline', '');
+            document.body.appendChild(div);
+            div.appendChild(video);
+
+            const stream = await navigator.mediaDevices.getUserMedia({video: true});
+            video.srcObject = stream;
+            await video.play();
+
+            
+            google.colab.output.setIframeHeight(document.documentElement.scrollHeight, true);
+
+            
+            await new Promise((resolve) => capture.onclick = resolve);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            stream.getTracks().forEach(track => track.stop());
+
+            const dataUrl = canvas.toDataURL('image/jpeg');
+            div.remove();
+            return dataUrl;
+        }
+        takePhoto();
+    ''')
+    display(js)
+    data = eval_js("takePhoto()")
+    header, encoded = data.split(',', 1)
+    img = b64decode(encoded)
+    img_array = np.frombuffer(img, dtype=np.uint8)
+    return cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+from ultralytics import YOLO
+import supervision as sv
+
+
+model = YOLO("yolov8n.pt")
+
+
+frame = capture_frame()
+
+
+results = model.predict(frame, verbose=False)[0]
+detections = sv.Detections.from_ultralytics(results)
+
+labels = [
+    f"{model.names[class_id]} {confidence:.2f}"
+    for class_id, confidence in zip(detections.class_id, detections.confidence)
+]
+
+
+box_annotator = sv.BoxAnnotator()
+label_annotator = sv.LabelAnnotator()
+annotated_frame = box_annotator.annotate(frame.copy(), detections)
+annotated_frame = label_annotator.annotate(annotated_frame, detections, labels)
+
+
+sv.plot_image(annotated_frame)
